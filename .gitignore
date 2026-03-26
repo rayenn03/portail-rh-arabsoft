@@ -1,0 +1,18 @@
+# Backend
+portail-rh-backend/vendor/
+portail-rh-backend/node_modules/
+portail-rh-backend/.env
+portail-rh-backend/storage/*.key
+portail-rh-backend/storage/logs/
+portail-rh-backend/bootstrap/cache/
+portail-rh-backend/public/storage
+
+# Frontend
+portail-rh-frontend/node_modules/
+portail-rh-frontend/dist/
+portail-rh-frontend/.env
+portail-rh-frontend/.env.local
+
+# General
+.DS_Store
+*.log
