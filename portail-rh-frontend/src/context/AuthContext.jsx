@@ -17,20 +17,29 @@ export function AuthProvider({ children }) {
   }, [])
 
   const login = async (email, password) => {
+    // /login renvoie maintenant { token, user } en une seule réponse
+    // → -1 round-trip HTTP, -1 requête DB
     const res = await api.post('/login', { email, password })
-    const { token: jwt } = res.data
+    const { token: jwt, user: userData } = res.data
 
-    // Sauvegarde le token
     localStorage.setItem('token', jwt)
-    setToken(jwt)
-
-    // Récupère les infos de l'utilisateur
-    const meRes = await api.get('/me')
-    const userData = meRes.data
     localStorage.setItem('user', JSON.stringify(userData))
+    setToken(jwt)
     setUser(userData)
 
     return userData
+  }
+
+  const refreshUser = async () => {
+    try {
+      const res  = await api.get('/me')
+      const data = res.data
+      localStorage.setItem('user', JSON.stringify(data))
+      setUser(data)
+      return data
+    } catch (e) {
+      console.error('Refresh user failed', e)
+    }
   }
 
   const logout = async () => {
@@ -42,7 +51,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, token, login, logout, loading, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )

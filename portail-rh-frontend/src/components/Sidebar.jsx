@@ -1,102 +1,171 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useState, useEffect, memo } from 'react'
+import api from '../api/axios'
+import p from './Sidebar.module.css'
 
-export default function Sidebar() {
-  const { user, logout } = useAuth()
-  const navigate = useNavigate()
-  const location = useLocation()
-
-  const handleLogout = async () => {
-    await logout()
-    navigate('/')
-  }
-
-  const initials = user ? `${user.prenom?.[0]}${user.nom?.[0]}` : 'U'
-
-  const roleLabel = {
-    admin: 'Gestionnaire RH',
-    chef: 'Chef Hiérarchique',
-    employe: 'Employé',
-  }[user?.role] || 'Utilisateur'
-
-const navItems = [
-  { path:'/dashboard',    icon:'📊', label:'Tableau de bord',      roles:['admin','chef','employe'] },
-  { path:'/demandes',     icon:'📋', label:'Mes Demandes',          roles:['employe'] },          // ✅ employe seulement
-  { path:'/all-demandes', icon:'📂', label:'Toutes les Demandes',   roles:['admin','chef'] },      // ✅ admin + chef
-  { path:'/employes',     icon:'👥', label:'Employés',              roles:['admin'] },             // ✅ admin seulement
-  { path:'/chatbot',      icon:'💬', label:'Assistant RH',          roles:['admin','chef','employe'] },
-  { path:'/profil',       icon:'👤', label:'Mon Profil',            roles:['admin','chef','employe'] },
+const NAV_ITEMS = [
+  { path:'/dashboard',       icon:'📊', label:'Tableau de bord',        roles:['admin','chef','employe'] },
+  { path:'/demandes',        icon:'📋', label:'Mes Demandes',            roles:['employe'] },
+  { path:'/all-demandes',    icon:'📂', label:'Toutes les Demandes',     roles:['admin','chef'] },
+  { path:'/employes',        icon:'👥', label:'Employés',                roles:['admin'] },
+  { path:'/messages',        icon:'💬', label:'Messagerie',              roles:['admin','chef','employe'] },
+  { path:'/password-resets', icon:'🔑', label:'Réinit. mots de passe',   roles:['admin'] },
+  { path:'/profil',          icon:'👤', label:'Mon Profil',              roles:['admin','chef','employe'] },
 ]
 
-  const filtered = navItems.filter(item => item.roles.includes(user?.role))
+function Sidebar() {
+  const { user, logout } = useAuth()
+  const navigate         = useNavigate()
+  const location         = useLocation()
+
+  // ── État collapse persisté ────────────────────────────────────────────────
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem('sidebarCollapsed') === 'true'
+  )
+
+  // ── Badge notifications non lues ──────────────────────────────────────────
+  const [unread, setUnread]         = useState(0)
+  const [unreadMsgs, setUnreadMsgs] = useState(0)
+
+  // Sync CSS var → Layout s'adapte automatiquement
+  useEffect(() => {
+    document.documentElement.style.setProperty('--sidebar-w', collapsed ? '64px' : '240px')
+    localStorage.setItem('sidebarCollapsed', String(collapsed))
+  }, [collapsed])
+
+  // Init CSS var au montage
+  useEffect(() => {
+    const saved = localStorage.getItem('sidebarCollapsed') === 'true'
+    document.documentElement.style.setProperty('--sidebar-w', saved ? '64px' : '240px')
+  }, [])
+
+  // Fetch non lues (polling 30s) — notifications + messages
+  useEffect(() => {
+    const fetch = () => {
+      api.get('/notifications').then(r => setUnread(r.data.non_lues || 0)).catch(() => {})
+      api.get('/messages/non-lus').then(r => setUnreadMsgs(r.data.non_lus || 0)).catch(() => {})
+    }
+    fetch()
+    const t = setInterval(fetch, 30000)
+    return () => clearInterval(t)
+  }, [])
+
+  const handleLogout = async () => { await logout(); navigate('/') }
+  const initials     = user ? `${user.prenom?.[0] ?? ''}${user.nom?.[0] ?? ''}` : 'U'
+  const roleLabel    = { admin:'Gestionnaire RH', chef:'Chef Hiérarchique', employe:'Employé' }[user?.role] || 'Utilisateur'
+  const filtered     = NAV_ITEMS.filter(i => i.roles.includes(user?.role))
 
   return (
     <>
       <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
-      <div style={styles.sidebar}>
 
-        {/* Logo */}
-        <div style={styles.logo}>
-          <div style={styles.logoMark}>A</div>
-          <span style={styles.logoName}>
-            Arab<span style={{color:'var(--accent)'}}>Soft</span>
-          </span>
+      <div className={`${p.sidebar} ${collapsed ? p.sidebarCollapsed : ''}`}>
+
+        {/* ── Logo ── */}
+        <div className={`${p.logo} ${collapsed ? p.logoCollapsed : ''}`}>
+          <div className={p.logoMark}>A</div>
+          {!collapsed && (
+            <span className={p.logoName}>
+              Arab<span style={{color:'var(--accent)'}}>Soft</span>
+            </span>
+          )}
         </div>
 
-        {/* User info */}
-        <div style={styles.userBox}>
-          <div style={styles.avatar}>{initials}</div>
-          <div>
-            <div style={styles.userName}>{user?.prenom} {user?.nom}</div>
-            <div style={styles.userRole}>{roleLabel}</div>
+        {/* ── User info ── */}
+        {!collapsed && (
+          <div className={p.userBox}>
+            <div className={p.avatar}>
+              {user?.photo_url
+                ? <img src={user.photo_url} alt="" className={p.avatarImg} />
+                : initials}
+            </div>
+            <div style={{flex:1, minWidth:0}}>
+              <div className={p.userName} title={`${user?.prenom} ${user?.nom}`}>
+                {user?.prenom} {user?.nom}
+              </div>
+              <div className={p.userRole}>{roleLabel}</div>
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Nav */}
-        <nav style={styles.nav}>
-          <div style={styles.navSection}>Navigation</div>
+        {/* Avatar seul en mode réduit */}
+        {collapsed && (
+          <div style={{padding:'12px 0', display:'flex', justifyContent:'center'}}>
+            <div className={p.avatar} style={{width:'36px', height:'36px'}} title={`${user?.prenom} ${user?.nom}`}>
+              {user?.photo_url
+                ? <img src={user.photo_url} alt="" className={p.avatarImg} />
+                : initials}
+            </div>
+          </div>
+        )}
+
+        {/* ── Nav ── */}
+        <nav className={p.nav}>
+          {!collapsed && <div className={p.navSection}>Navigation</div>}
+
           {filtered.map(item => {
             const active = location.pathname === item.path
+            const isDashboard = item.path === '/dashboard'
+            const isMessages  = item.path === '/messages'
+            const badgeCount  = isDashboard ? unread : (isMessages ? unreadMsgs : 0)
+            const showBadge   = badgeCount > 0
             return (
               <div
                 key={item.path}
                 onClick={() => navigate(item.path)}
-                style={{...styles.navItem, ...(active ? styles.navItemActive : {})}}
+                className={`nav-item ${p.navItem} ${collapsed ? p.navItemCollapsed : ''} ${active ? p.navItemActive : ''}`}
+                title={collapsed ? item.label : undefined}
               >
-                {active && <div style={styles.activeLine} />}
-                <span style={styles.navIcon}>{item.icon}</span>
-                <span>{item.label}</span>
+                {active && <div className={p.activeLine} />}
+
+                <div style={{position:'relative', display:'inline-flex'}}>
+                  <span className={p.navIcon}>{item.icon}</span>
+                  {/* Badge non lues */}
+                  {showBadge && (
+                    <span className={p.badge}>
+                      {badgeCount > 9 ? '9+' : badgeCount}
+                    </span>
+                  )}
+                </div>
+
+                {!collapsed && <span style={{flex:1}}>{item.label}</span>}
+
+                {/* Badge inline (mode étendu) */}
+                {!collapsed && showBadge && (
+                  <span className={p.badgeInline}>{badgeCount > 9 ? '9+' : badgeCount}</span>
+                )}
               </div>
             )
           })}
         </nav>
 
-        {/* Logout */}
-        <div style={styles.bottom}>
-          <button onClick={handleLogout} style={styles.logoutBtn}>
-            🚪 Se déconnecter
+        {/* ── Bouton collapse ── */}
+        <div className={`${p.collapseArea} ${collapsed ? p.collapseAreaCollapsed : ''}`}>
+          <button
+            onClick={() => setCollapsed(c => !c)}
+            className={`${p.collapseBtn} ${collapsed ? p.collapseBtnCollapsed : ''}`}
+            title={collapsed ? 'Développer la sidebar' : 'Réduire la sidebar'}
+          >
+            {collapsed ? '→' : '← Réduire'}
           </button>
         </div>
+
+        {/* ── Logout ── */}
+        <div className={`${p.bottom} ${collapsed ? p.bottomCollapsed : ''}`}>
+          <button
+            onClick={handleLogout}
+            className={`${p.logoutBtn} ${collapsed ? p.logoutBtnCollapsed : ''}`}
+            title={collapsed ? 'Se déconnecter' : undefined}
+          >
+            <span>🚪</span>
+            {!collapsed && <span>Se déconnecter</span>}
+          </button>
+        </div>
+
       </div>
     </>
   )
 }
 
-const styles = {
-  sidebar:{width:'240px',height:'100vh',background:'white',borderRight:'1px solid var(--border)',display:'flex',flexDirection:'column',position:'fixed',top:0,left:0,zIndex:100},
-  logo:{padding:'20px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:'10px'},
-  logoMark:{width:'32px',height:'32px',background:'var(--accent)',borderRadius:'8px',display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:700,fontSize:'14px',fontFamily:'Instrument Serif, serif',fontStyle:'italic'},
-  logoName:{fontSize:'16px',fontWeight:600,color:'var(--text)',letterSpacing:'-0.3px'},
-  userBox:{padding:'16px 20px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:'10px'},
-  avatar:{width:'36px',height:'36px',borderRadius:'50%',background:'linear-gradient(135deg, var(--accent), #c47c25)',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:600,fontSize:'13px',color:'white',flexShrink:0},
-  userName:{fontSize:'13px',fontWeight:600,color:'var(--text)'},
-  userRole:{fontSize:'11px',color:'var(--accent)',fontWeight:500},
-  nav:{flex:1,padding:'12px 0',overflowY:'auto'},
-  navSection:{padding:'16px 20px 6px',fontSize:'10px',textTransform:'uppercase',letterSpacing:'1px',color:'var(--text3)',fontWeight:600},
-  navItem:{display:'flex',alignItems:'center',gap:'10px',padding:'10px 20px',fontSize:'13.5px',color:'var(--text2)',cursor:'pointer',transition:'all 0.15s',position:'relative'},
-  navItemActive:{color:'var(--accent)',background:'rgba(255,45,32,0.05)'},
-  activeLine:{position:'absolute',left:0,top:'6px',bottom:'6px',width:'3px',background:'var(--accent)',borderRadius:'0 3px 3px 0'},
-  navIcon:{width:'18px',textAlign:'center',fontSize:'16px'},
-  bottom:{padding:'16px 20px',borderTop:'1px solid var(--border)'},
-  logoutBtn:{display:'flex',alignItems:'center',gap:'8px',fontSize:'13px',color:'var(--text2)',cursor:'pointer',background:'none',border:'none',fontFamily:'Inter, sans-serif',transition:'color 0.15s',padding:0},
-}
+export default memo(Sidebar)

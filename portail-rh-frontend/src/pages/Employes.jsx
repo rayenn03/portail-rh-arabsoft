@@ -1,8 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import Layout from '../components/Layout'
+import { useToast } from '../context/ToastContext'
+import { useConfirm } from '../context/ConfirmContext'
 import api from '../api/axios'
+import s from '../styles/shared.module.css'
+import p from './Employes.module.css'
 
 export default function Employes() {
+  const { showToast } = useToast()
+  const { confirm } = useConfirm()
   const [employes, setEmployes]   = useState([])
   const [loading, setLoading]     = useState(true)
   const [search, setSearch]       = useState('')
@@ -15,6 +21,11 @@ export default function Employes() {
   const [editModal, setEditModal]   = useState(false)
   const [editForm, setEditForm]     = useState({})
   const [editId, setEditId]         = useState(null)
+  // Gestion du solde de congés (admin)
+  const [solde, setSolde]           = useState(null)
+  const [soldeSaving, setSoldeSaving] = useState(false)
+  const empPhotoInputRef = useRef(null)
+  const [uploadingEmpPhoto, setUploadingEmpPhoto] = useState(false)
 
   const fetchEmployes = () => {
     setLoading(true)
@@ -39,11 +50,11 @@ export default function Employes() {
   // Créer un employé
  const handleCreate = async () => {
   // Validation
-  if (!form.prenom.trim()) return alert('Le prénom est obligatoire.')
-  if (!form.nom.trim()) return alert('Le nom est obligatoire.')
-  if (!form.email.trim()) return alert('L\'email est obligatoire.')
-  if (!form.email.includes('@')) return alert('Email invalide.')
-  if (form.password.length < 6) return alert('Le mot de passe doit contenir au moins 6 caractères.')
+  if (!form.prenom.trim()) return showToast('Le prénom est obligatoire.', 'error')
+  if (!form.nom.trim()) return showToast('Le nom est obligatoire.', 'error')
+  if (!form.email.trim()) return showToast('L\'email est obligatoire.', 'error')
+  if (!form.email.includes('@')) return showToast('Email invalide.', 'error')
+  if (form.password.length < 6) return showToast('Le mot de passe doit contenir au moins 6 caractères.', 'error')
 
   try {
     await api.post('/register', {
@@ -53,28 +64,32 @@ export default function Employes() {
     setModalOpen(false)
     setForm({ nom:'', prenom:'', email:'', password:'', role:'employe', departement:'', poste:'', telephone:'', chef_id:'' })
     fetchEmployes()
-    setSuccess('Employé créé avec succès !')
-    setTimeout(() => setSuccess(''), 4000)
+    showToast('Employé créé avec succès !')
   } catch (e) {
     const errors = e.response?.data?.errors
     if (errors) {
-      const msg = Object.values(errors).flat().join('\n')
-      alert(msg)
+      const msg = Object.values(errors).flat().join(' — ')
+      showToast(msg, 'error')
     } else {
-      alert(e.response?.data?.message || 'Erreur lors de la création.')
+      showToast(e.response?.data?.message || 'Erreur lors de la création.', 'error')
     }
   }
 }
   // Supprimer un employé
   const handleDelete = async (id) => {
-    if (!window.confirm('Supprimer cet employé ?')) return
+    const ok = await confirm({
+      title: 'Supprimer l\'employé',
+      message: 'Cette action est irréversible. Toutes les données associées (demandes, soldes, photo) seront perdues. Continuer ?',
+      confirmText: 'Supprimer',
+      danger: true,
+    })
+    if (!ok) return
     try {
       await api.delete(`/users/${id}`)
       fetchEmployes()
-      setSuccess('Employé supprimé.')
-      setTimeout(() => setSuccess(''), 3000)
+      showToast('Employé supprimé.')
     } catch (e) {
-      alert('Erreur lors de la suppression.')
+      showToast('Erreur lors de la suppression.', 'error')
     }
   }
   const openEdit = (emp) => {
@@ -89,17 +104,89 @@ export default function Employes() {
     telephone:   emp.telephone || '',
     chef_id:     emp.chef_id || '',
     password:    '',
+    photo_url:   emp.photo_url || null,
   })
+  setSolde(null)
   setEditModal(true)
+  // Charger le solde de congés en parallèle (n'attend pas l'ouverture de la modale)
+  api.get(`/users/${emp.id}/conges`)
+    .then(res => setSolde(res.data.solde))
+    .catch(() => setSolde(null))
+}
+
+// Sauvegarder le solde de congés
+const handleSaveSolde = async () => {
+  if (!solde) return
+  setSoldeSaving(true)
+  try {
+    const res = await api.put(`/users/${editId}/conges`, {
+      annuel_total:       solde.annuel_total,
+      annuel_pris:        solde.annuel_pris,
+      maladie_total:      solde.maladie_total,
+      maladie_pris:       solde.maladie_pris,
+      exceptionnel_total: solde.exceptionnel_total,
+      exceptionnel_pris:  solde.exceptionnel_pris,
+    })
+    setSolde(res.data.solde)
+    showToast('Solde de congés mis à jour.')
+  } catch (e) {
+    showToast(e.response?.data?.message || 'Erreur lors de la mise à jour du solde.', 'error')
+  } finally {
+    setSoldeSaving(false)
+  }
+}
+
+const handleUploadEmpPhoto = async (e) => {
+  const file = e.target.files?.[0]
+  if (!file) return
+  if (file.size > 2 * 1024 * 1024) {
+    showToast('La photo doit faire moins de 2 Mo.', 'error')
+    e.target.value = ''
+    return
+  }
+  setUploadingEmpPhoto(true)
+  try {
+    const fd = new FormData()
+    fd.append('photo', file)
+    const res = await api.post(`/users/${editId}/photo`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    setEditForm(prev => ({ ...prev, photo_url: res.data.photo_url }))
+    fetchEmployes()
+    showToast('Photo mise à jour.')
+  } catch (err) {
+    showToast(err.response?.data?.message || 'Erreur lors de l\'upload.', 'error')
+  } finally {
+    setUploadingEmpPhoto(false)
+    e.target.value = ''
+  }
+}
+
+const handleDeleteEmpPhoto = async () => {
+  const ok = await confirm({
+    title: 'Supprimer la photo',
+    message: 'Voulez-vous supprimer la photo de profil de cet employé ?',
+    confirmText: 'Supprimer',
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    await api.delete(`/users/${editId}/photo`)
+    setEditForm(prev => ({ ...prev, photo_url: null }))
+    fetchEmployes()
+    showToast('Photo supprimée.')
+  } catch {
+    showToast('Erreur lors de la suppression.', 'error')
+  }
 }
 
 const handleEdit = async () => {
   // Validation
-  if (!editForm.prenom.trim()) return alert('Le prénom est obligatoire.')
-  if (!editForm.nom.trim()) return alert('Le nom est obligatoire.')
-  if (!editForm.email.trim()) return alert('L\'email est obligatoire.')
-  if (!editForm.email.includes('@')) return alert('Email invalide.')
-  if (editForm.password && editForm.password.length < 6) return alert('Le mot de passe doit contenir au moins 6 caractères.')
+  if (!editForm.prenom.trim()) return showToast('Le prénom est obligatoire.', 'error')
+  if (!editForm.nom.trim()) return showToast('Le nom est obligatoire.', 'error')
+  if (!editForm.email.trim()) return showToast('L\'email est obligatoire.', 'error')
+  if (!editForm.email.includes('@')) return showToast('Email invalide.', 'error')
+  if (editForm.password && editForm.password.length < 6) return showToast('Le mot de passe doit contenir au moins 6 caractères.', 'error')
 
   try {
     const data = { ...editForm }
@@ -107,119 +194,119 @@ const handleEdit = async () => {
     await api.put(`/users/${editId}`, data)
     setEditModal(false)
     fetchEmployes()
-    setSuccess('Employé modifié avec succès !')
-    setTimeout(() => setSuccess(''), 4000)
+    showToast('Employé modifié avec succès !')
   } catch (e) {
     const errors = e.response?.data?.errors
     if (errors) {
-      const msg = Object.values(errors).flat().join('\n')
-      alert(msg)
+      const msg = Object.values(errors).flat().join(' — ')
+      showToast(msg, 'error')
     } else {
-      alert(e.response?.data?.message || 'Erreur lors de la modification.')
+      showToast(e.response?.data?.message || 'Erreur lors de la modification.', 'error')
     }
   }
 }
+
+  // Role badge CSS helper
+  const roleCss = { admin: p.roleAdmin, chef: p.roleChef, employe: p.roleEmploye }
   const roleLabel = { admin:'Admin RH', chef:'Chef', employe:'Employé' }
-  const roleStyle = {
-    admin:   { background:'#F0FDF4', color:'#16A34A', border:'1px solid rgba(34,197,94,0.2)' },
-    chef:    { background:'#FFF7ED', color:'#C2410C', border:'1px solid rgba(234,88,12,0.2)' },
-    employe: { background:'var(--blue-light)', color:'#1D4ED8', border:'1px solid rgba(59,130,246,0.2)' },
-  }
 
   return (
     <Layout title="Employés">
 
       {/* Header */}
-      <div style={styles.pageHeader}>
+      <div className={s.pageHeader}>
         <div>
-          <h2 style={styles.pageTitle}>Employés</h2>
-          <p style={styles.pageSub}>
+          <h2 className={s.pageTitle}>Employés</h2>
+          <p className={s.pageSub}>
             {employes.length} utilisateurs au total —&nbsp;
             {employes.filter(e=>e.role==='employe').length} employés,&nbsp;
             {employes.filter(e=>e.role==='chef').length} chefs
           </p>
         </div>
-        <button onClick={() => setModalOpen(true)} style={styles.btnNew}>
+        <button onClick={() => setModalOpen(true)} className={s.btnNew}>
           + Ajouter un employé
         </button>
       </div>
 
-      {/* Success */}
-      {success && (
-        <div style={styles.successBox}> ✅ {success}</div>
-      )}
+      {/* Toast géré par <ToastProvider> global */}
 
       {/* Search */}
-      <div style={styles.searchWrap}>
-        <span style={styles.searchIcon}>🔍</span>
+      <div className={p.searchWrap}>
+        <span className={p.searchIcon}>🔍</span>
         <input
           type="text"
           placeholder="Rechercher par nom, email, département..."
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={styles.searchInput}
+          className={`input-glass ${p.searchInput}`}
         />
       </div>
 
       {/* Grid */}
       {loading ? (
-        <div style={styles.loader}>⏳ Chargement...</div>
+        <div className={p.empGrid}>
+          {[0,1,2,3,4,5].map(i => (
+            <div key={i} className="skeleton" style={{height:'200px', borderRadius:'12px'}} />
+          ))}
+        </div>
       ) : filtered.length === 0 ? (
-        <div style={styles.empty}>
+        <div className={s.empty}>
           <div style={{fontSize:'40px',marginBottom:'12px'}}>👥</div>
           <div style={{fontWeight:500,color:'var(--text)'}}>Aucun employé trouvé</div>
         </div>
       ) : (
-        <div style={styles.empGrid}>
+        <div className={p.empGrid}>
           {filtered.map((emp, i) => (
-            <div key={i} style={styles.empCard}>
+            <div key={i} className={`card-hover ${p.empCard}`}>
 
               {/* Avatar + infos */}
-              <div style={styles.empTop}>
-                <div style={{...styles.empAvatar, background: avatarColors[i % avatarColors.length]}}>
-                  {emp.prenom?.[0]}{emp.nom?.[0]}
+              <div className={p.empTop}>
+                <div className={p.empAvatar} style={{background: avatarColors[i % avatarColors.length]}}>
+                  {emp.photo_url
+                    ? <img src={emp.photo_url} alt="" className={p.photoImg} />
+                    : <>{emp.prenom?.[0]}{emp.nom?.[0]}</>}
                 </div>
                 <div style={{flex:1}}>
-                  <div style={styles.empName}>{emp.prenom} {emp.nom}</div>
-                  <div style={styles.empPoste}>{emp.poste || 'Non défini'}</div>
+                  <div className={p.empName}>{emp.prenom} {emp.nom}</div>
+                  <div className={p.empPoste}>{emp.poste || 'Non défini'}</div>
                 </div>
-                <span style={{...styles.roleBadge, ...roleStyle[emp.role]}}>
+                <span className={`${p.roleBadge} ${roleCss[emp.role] || ''}`}>
                   {roleLabel[emp.role] || emp.role}
                 </span>
               </div>
 
               {/* Détails */}
-              <div style={styles.empDetails}>
-                <div style={styles.empDetail}>
-                  <span style={styles.detailIcon}>📧</span>
-                  <span style={styles.detailText}>{emp.email}</span>
+              <div className={p.empDetails}>
+                <div className={p.empDetail}>
+                  <span className={p.detailIcon}>📧</span>
+                  <span className={p.detailText}>{emp.email}</span>
                 </div>
                 {emp.departement && (
-                  <div style={styles.empDetail}>
-                    <span style={styles.detailIcon}>🏢</span>
-                    <span style={styles.detailText}>{emp.departement}</span>
+                  <div className={p.empDetail}>
+                    <span className={p.detailIcon}>🏢</span>
+                    <span className={p.detailText}>{emp.departement}</span>
                   </div>
                 )}
                 {emp.telephone && (
-                  <div style={styles.empDetail}>
-                    <span style={styles.detailIcon}>📞</span>
-                    <span style={styles.detailText}>{emp.telephone}</span>
+                  <div className={p.empDetail}>
+                    <span className={p.detailIcon}>📞</span>
+                    <span className={p.detailText}>{emp.telephone}</span>
                   </div>
                 )}
                 {emp.chef && (
-                  <div style={styles.empDetail}>
-                    <span style={styles.detailIcon}>👔</span>
-                    <span style={styles.detailText}>Chef : {emp.chef.prenom} {emp.chef.nom}</span>
+                  <div className={p.empDetail}>
+                    <span className={p.detailIcon}>👔</span>
+                    <span className={p.detailText}>Chef : {emp.chef.prenom} {emp.chef.nom}</span>
                   </div>
                 )}
               </div>
 
               {/* Actions */}
-              <div style={styles.empActions}>
-                <button onClick={() => openEdit(emp)} style={styles.actionBtn}>✏️ Modifier</button>
+              <div className={p.empActions}>
+                <button onClick={() => openEdit(emp)} className={`btn-hover ${s.actionBtn}`}>✏️ Modifier</button>
                 <button
                   onClick={() => handleDelete(emp.id)}
-                  style={{...styles.actionBtn, ...styles.actionBtnRed}}
+                  className={`btn-hover ${s.actionBtn} ${s.actionBtnRed}`}
                 >
                   🗑️ Supprimer
                 </button>
@@ -231,51 +318,51 @@ const handleEdit = async () => {
 
       {/* MODAL — Ajouter employé */}
       {modalOpen && (
-        <div style={styles.overlay} onClick={e => e.target === e.currentTarget && setModalOpen(false)}>
-          <div style={styles.modal}>
-            <div style={styles.modalTitle}>Ajouter un employé</div>
+        <div className={s.overlay} onClick={e => e.target === e.currentTarget && setModalOpen(false)}>
+          <div className={`modal-enter ${s.modal}`}>
+            <div className={s.modalTitle}>Ajouter un employé</div>
 
-            <div style={styles.formGrid}>
-              <div style={styles.field}>
-                <label style={styles.label}>Prénom *</label>
-                <input style={styles.input} placeholder="ex: Ahmed" value={form.prenom} onChange={e=>setForm({...form,prenom:e.target.value})} />
+            <div className={s.formGrid}>
+              <div className={s.field}>
+                <label className={s.label}>Prénom *</label>
+                <input className={s.input} placeholder="ex: Ahmed" value={form.prenom} onChange={e=>setForm({...form,prenom:e.target.value})} />
               </div>
-              <div style={styles.field}>
-                <label style={styles.label}>Nom *</label>
-                <input style={styles.input} placeholder="ex: Benali" value={form.nom} onChange={e=>setForm({...form,nom:e.target.value})} />
+              <div className={s.field}>
+                <label className={s.label}>Nom *</label>
+                <input className={s.input} placeholder="ex: Benali" value={form.nom} onChange={e=>setForm({...form,nom:e.target.value})} />
               </div>
-              <div style={{...styles.field, gridColumn:'1/-1'}}>
-                <label style={styles.label}>Email *</label>
-                <input type="email" style={styles.input} placeholder="ex: ahmed.benali@arabsoft.com.tn" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
+              <div className={`${s.field} ${p.fieldFull}`}>
+                <label className={s.label}>Email *</label>
+                <input type="email" className={s.input} placeholder="ex: ahmed.benali@arabsoft.com.tn" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} />
               </div>
-              <div style={styles.field}>
-                <label style={styles.label}>Mot de passe *</label>
-                <input type="password" style={styles.input} placeholder="min. 6 caractères" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} />
+              <div className={s.field}>
+                <label className={s.label}>Mot de passe *</label>
+                <input type="password" className={s.input} placeholder="min. 6 caractères" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} />
               </div>
-              <div style={styles.field}>
-                <label style={styles.label}>Rôle *</label>
-                <select style={styles.input} value={form.role} onChange={e=>setForm({...form,role:e.target.value})}>
+              <div className={s.field}>
+                <label className={s.label}>Rôle *</label>
+                <select className={s.input} value={form.role} onChange={e=>setForm({...form,role:e.target.value})}>
                   <option value="employe">Employé</option>
                   <option value="chef">Chef Hiérarchique</option>
                   <option value="admin">Administrateur RH</option>
                 </select>
               </div>
-              <div style={styles.field}>
-                <label style={styles.label}>Département</label>
-                <input style={styles.input} placeholder="ex: Informatique" value={form.departement} onChange={e=>setForm({...form,departement:e.target.value})} />
+              <div className={s.field}>
+                <label className={s.label}>Département</label>
+                <input className={s.input} placeholder="ex: Informatique" value={form.departement} onChange={e=>setForm({...form,departement:e.target.value})} />
               </div>
-              <div style={styles.field}>
-                <label style={styles.label}>Poste</label>
-                <input style={styles.input} placeholder="ex: Développeur" value={form.poste} onChange={e=>setForm({...form,poste:e.target.value})} />
+              <div className={s.field}>
+                <label className={s.label}>Poste</label>
+                <input className={s.input} placeholder="ex: Développeur" value={form.poste} onChange={e=>setForm({...form,poste:e.target.value})} />
               </div>
-              <div style={styles.field}>
-                <label style={styles.label}>Téléphone</label>
-                <input style={styles.input} placeholder="ex: +216 71 000 000" value={form.telephone} onChange={e=>setForm({...form,telephone:e.target.value})} />
+              <div className={s.field}>
+                <label className={s.label}>Téléphone</label>
+                <input className={s.input} placeholder="ex: +216 71 000 000" value={form.telephone} onChange={e=>setForm({...form,telephone:e.target.value})} />
               </div>
               {form.role === 'employe' && (
-                <div style={{...styles.field, gridColumn:'1/-1'}}>
-                  <label style={styles.label}>Chef hiérarchique</label>
-                  <select style={styles.input} value={form.chef_id} onChange={e=>setForm({...form,chef_id:e.target.value})}>
+                <div className={`${s.field} ${p.fieldFull}`}>
+                  <label className={s.label}>Chef hiérarchique</label>
+                  <select className={s.input} value={form.chef_id} onChange={e=>setForm({...form,chef_id:e.target.value})}>
                     <option value="">-- Aucun --</option>
                     {chefs.map(c => (
                       <option key={c.id} value={c.id}>{c.prenom} {c.nom}</option>
@@ -285,12 +372,11 @@ const handleEdit = async () => {
               )}
             </div>
 
-            <div style={styles.modalActions}>
-              <button onClick={() => setModalOpen(false)} style={styles.btnCancel}>Annuler</button>
+            <div className={s.modalActions}>
+              <button onClick={() => setModalOpen(false)} className={`btn-hover ${s.btnCancel}`}>Annuler</button>
               <button
                 onClick={handleCreate}
-                disabled={!form.nom || !form.prenom || !form.email || !form.password}
-                style={{...styles.btnSubmit, opacity: (!form.nom||!form.prenom||!form.email||!form.password) ? 0.6 : 1}}
+                className={`btn-hover ${s.btnSubmit}`}
               >
                 Créer l'employé
               </button>
@@ -298,71 +384,226 @@ const handleEdit = async () => {
           </div>
         </div>
       )}
+
       {/* MODAL — Modifier employé */}
-{editModal && (
-  <div style={styles.overlay} onClick={e => e.target === e.currentTarget && setEditModal(false)}>
-    <div style={styles.modal}>
-      <div style={styles.modalTitle}>Modifier l'employé</div>
+      {editModal && (
+        <div className={s.overlay} onClick={e => e.target === e.currentTarget && setEditModal(false)}>
+          <div className={`modal-enter ${s.modal}`}>
+            <div className={s.modalTitle}>Modifier l'employé</div>
 
-      <div style={styles.formGrid}>
-        <div style={styles.field}>
-          <label style={styles.label}>Prénom *</label>
-          <input style={styles.input} value={editForm.prenom} onChange={e=>setEditForm({...editForm,prenom:e.target.value})} />
-        </div>
-        <div style={styles.field}>
-          <label style={styles.label}>Nom *</label>
-          <input style={styles.input} value={editForm.nom} onChange={e=>setEditForm({...editForm,nom:e.target.value})} />
-        </div>
-        <div style={{...styles.field, gridColumn:'1/-1'}}>
-          <label style={styles.label}>Email *</label>
-          <input type="email" style={styles.input} value={editForm.email} onChange={e=>setEditForm({...editForm,email:e.target.value})} />
-        </div>
-        <div style={styles.field}>
-          <label style={styles.label}>Nouveau mot de passe</label>
-          <input type="password" style={styles.input} placeholder="Laisser vide = inchangé" value={editForm.password} onChange={e=>setEditForm({...editForm,password:e.target.value})} />
-        </div>
-        <div style={styles.field}>
-          <label style={styles.label}>Rôle *</label>
-          <select style={styles.input} value={editForm.role} onChange={e=>setEditForm({...editForm,role:e.target.value})}>
-            <option value="employe">Employé</option>
-            <option value="chef">Chef Hiérarchique</option>
-            <option value="admin">Administrateur RH</option>
-          </select>
-        </div>
-        <div style={styles.field}>
-          <label style={styles.label}>Département</label>
-          <input style={styles.input} value={editForm.departement} onChange={e=>setEditForm({...editForm,departement:e.target.value})} />
-        </div>
-        <div style={styles.field}>
-          <label style={styles.label}>Poste</label>
-          <input style={styles.input} value={editForm.poste} onChange={e=>setEditForm({...editForm,poste:e.target.value})} />
-        </div>
-        <div style={styles.field}>
-          <label style={styles.label}>Téléphone</label>
-          <input style={styles.input} value={editForm.telephone} onChange={e=>setEditForm({...editForm,telephone:e.target.value})} />
-        </div>
-        {editForm.role === 'employe' && (
-          <div style={{...styles.field, gridColumn:'1/-1'}}>
-            <label style={styles.label}>Chef hiérarchique</label>
-            <select style={styles.input} value={editForm.chef_id} onChange={e=>setEditForm({...editForm,chef_id:e.target.value})}>
-              <option value="">-- Aucun --</option>
-              {chefs.map(c => (
-                <option key={c.id} value={c.id}>{c.prenom} {c.nom}</option>
-              ))}
-            </select>
+            {/* Photo de profil */}
+            <div className={p.photoSection}>
+              <div className={p.photoPreview}>
+                {editForm.photo_url
+                  ? <img src={editForm.photo_url} alt="" className={p.photoImg} />
+                  : `${(editForm.prenom?.[0] || '')}${(editForm.nom?.[0] || '')}`.toUpperCase()}
+              </div>
+              <div style={{display:'flex', flexDirection:'column', gap:'8px'}}>
+                <button
+                  type="button"
+                  onClick={() => !uploadingEmpPhoto && empPhotoInputRef.current?.click()}
+                  className={`btn-hover ${p.btnChangePhoto}`}
+                >
+                  📷 {uploadingEmpPhoto ? 'Envoi...' : 'Changer la photo'}
+                </button>
+                {editForm.photo_url && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteEmpPhoto}
+                    className={`btn-hover ${p.btnDeletePhoto}`}
+                  >
+                    Supprimer la photo
+                  </button>
+                )}
+                <input
+                  ref={empPhotoInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  style={{display:'none'}}
+                  onChange={handleUploadEmpPhoto}
+                />
+              </div>
+            </div>
+
+            <div className={s.formGrid}>
+              <div className={s.field}>
+                <label className={s.label}>Prénom *</label>
+                <input className={s.input} value={editForm.prenom} onChange={e=>setEditForm({...editForm,prenom:e.target.value})} />
+              </div>
+              <div className={s.field}>
+                <label className={s.label}>Nom *</label>
+                <input className={s.input} value={editForm.nom} onChange={e=>setEditForm({...editForm,nom:e.target.value})} />
+              </div>
+              <div className={`${s.field} ${p.fieldFull}`}>
+                <label className={s.label}>Email *</label>
+                <input type="email" className={s.input} value={editForm.email} onChange={e=>setEditForm({...editForm,email:e.target.value})} />
+              </div>
+              <div className={s.field}>
+                <label className={s.label}>Nouveau mot de passe</label>
+                <input type="password" className={s.input} placeholder="Laisser vide = inchangé" value={editForm.password} onChange={e=>setEditForm({...editForm,password:e.target.value})} />
+              </div>
+              <div className={s.field}>
+                <label className={s.label}>Rôle *</label>
+                <select className={s.input} value={editForm.role} onChange={e=>setEditForm({...editForm,role:e.target.value})}>
+                  <option value="employe">Employé</option>
+                  <option value="chef">Chef Hiérarchique</option>
+                  <option value="admin">Administrateur RH</option>
+                </select>
+              </div>
+              <div className={s.field}>
+                <label className={s.label}>Département</label>
+                <input className={s.input} value={editForm.departement} onChange={e=>setEditForm({...editForm,departement:e.target.value})} />
+              </div>
+              <div className={s.field}>
+                <label className={s.label}>Poste</label>
+                <input className={s.input} value={editForm.poste} onChange={e=>setEditForm({...editForm,poste:e.target.value})} />
+              </div>
+              <div className={s.field}>
+                <label className={s.label}>Téléphone</label>
+                <input className={s.input} value={editForm.telephone} onChange={e=>setEditForm({...editForm,telephone:e.target.value})} />
+              </div>
+              {editForm.role === 'employe' && (
+                <div className={`${s.field} ${p.fieldFull}`}>
+                  <label className={s.label}>Chef hiérarchique</label>
+                  <select className={s.input} value={editForm.chef_id} onChange={e=>setEditForm({...editForm,chef_id:e.target.value})}>
+                    <option value="">-- Aucun --</option>
+                    {chefs.map(c => (
+                      <option key={c.id} value={c.id}>{c.prenom} {c.nom}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {/* ── Section SOLDE DE CONGÉS (admin) ─────────────────── */}
+            {solde && (
+              <div className={p.soldeSection}>
+                <div className={p.soldeHeader}>
+                  <div>
+                    <div className={p.soldeTitle}>🏖️ Solde de congés {solde.annee}</div>
+                    <div className={p.soldeSub}>
+                      Modifiable par l'administrateur RH uniquement
+                    </div>
+                  </div>
+                </div>
+
+                <div className={p.soldeGrid}>
+                  {/* Congé annuel */}
+                  <div className={p.soldeCard} style={{borderColor:'rgba(255,45,32,0.25)'}}>
+                    <div className={p.soldeCardTitle}>
+                      <span style={{fontSize:'16px'}}>📅</span> Congé annuel
+                    </div>
+                    <div className={p.soldeCardBody}>
+                      <div className={p.soldeField}>
+                        <label className={p.soldeLabel}>Total (jours)</label>
+                        <input
+                          type="number" min="0" max="365"
+                          className={p.soldeInput}
+                          value={solde.annuel_total}
+                          onChange={e => setSolde({...solde, annuel_total: parseInt(e.target.value) || 0})}
+                        />
+                      </div>
+                      <div className={p.soldeField}>
+                        <label className={p.soldeLabel}>Pris (jours)</label>
+                        <input
+                          type="number" min="0" max="365"
+                          className={p.soldeInput}
+                          value={solde.annuel_pris}
+                          onChange={e => setSolde({...solde, annuel_pris: parseInt(e.target.value) || 0})}
+                        />
+                      </div>
+                      <div className={p.soldeRestant}>
+                        Restant : <strong style={{color:'var(--accent)'}}>
+                          {Math.max(0, solde.annuel_total - solde.annuel_pris)} jours
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Congé maladie */}
+                  <div className={p.soldeCard} style={{borderColor:'rgba(59,130,246,0.25)'}}>
+                    <div className={p.soldeCardTitle}>
+                      <span style={{fontSize:'16px'}}>🏥</span> Congé maladie
+                    </div>
+                    <div className={p.soldeCardBody}>
+                      <div className={p.soldeField}>
+                        <label className={p.soldeLabel}>Total (jours)</label>
+                        <input
+                          type="number" min="0" max="365"
+                          className={p.soldeInput}
+                          value={solde.maladie_total}
+                          onChange={e => setSolde({...solde, maladie_total: parseInt(e.target.value) || 0})}
+                        />
+                      </div>
+                      <div className={p.soldeField}>
+                        <label className={p.soldeLabel}>Pris (jours)</label>
+                        <input
+                          type="number" min="0" max="365"
+                          className={p.soldeInput}
+                          value={solde.maladie_pris}
+                          onChange={e => setSolde({...solde, maladie_pris: parseInt(e.target.value) || 0})}
+                        />
+                      </div>
+                      <div className={p.soldeRestant}>
+                        Restant : <strong style={{color:'#3B82F6'}}>
+                          {Math.max(0, solde.maladie_total - solde.maladie_pris)} jours
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Congé exceptionnel */}
+                  <div className={p.soldeCard} style={{borderColor:'rgba(34,197,94,0.25)'}}>
+                    <div className={p.soldeCardTitle}>
+                      <span style={{fontSize:'16px'}}>🎉</span> Congé exceptionnel
+                    </div>
+                    <div className={p.soldeCardBody}>
+                      <div className={p.soldeField}>
+                        <label className={p.soldeLabel}>Total (jours)</label>
+                        <input
+                          type="number" min="0" max="365"
+                          className={p.soldeInput}
+                          value={solde.exceptionnel_total}
+                          onChange={e => setSolde({...solde, exceptionnel_total: parseInt(e.target.value) || 0})}
+                        />
+                      </div>
+                      <div className={p.soldeField}>
+                        <label className={p.soldeLabel}>Pris (jours)</label>
+                        <input
+                          type="number" min="0" max="365"
+                          className={p.soldeInput}
+                          value={solde.exceptionnel_pris}
+                          onChange={e => setSolde({...solde, exceptionnel_pris: parseInt(e.target.value) || 0})}
+                        />
+                      </div>
+                      <div className={p.soldeRestant}>
+                        Restant : <strong style={{color:'#22C55E'}}>
+                          {Math.max(0, solde.exceptionnel_total - solde.exceptionnel_pris)} jours
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleSaveSolde}
+                  disabled={soldeSaving}
+                  className={`btn-hover ${p.btnSaveSolde}`}
+                >
+                  {soldeSaving ? 'Sauvegarde...' : '💾 Enregistrer les soldes de congés'}
+                </button>
+              </div>
+            )}
+
+            <div className={s.modalActions}>
+              <button onClick={() => setEditModal(false)} className={`btn-hover ${s.btnCancel}`}>Annuler</button>
+              <button onClick={handleEdit} className={`btn-hover ${s.btnSubmit}`}>
+                Enregistrer les modifications
+              </button>
+            </div>
           </div>
-        )}
-      </div>
-
-      <div style={styles.modalActions}>
-        <button onClick={() => setEditModal(false)} style={styles.btnCancel}>Annuler</button>
-        <button onClick={handleEdit} style={styles.btnSubmit}>
-          Enregistrer les modifications
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+        </div>
+      )}
     </Layout>
   )
 }
@@ -376,41 +617,3 @@ const avatarColors = [
   'linear-gradient(135deg,#F97316,#EA580C)',
   'linear-gradient(135deg,#EC4899,#BE185D)',
 ]
-
-// ── STYLES ──
-const styles = {
-  pageHeader:{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:'24px'},
-  pageTitle:{fontFamily:'Instrument Serif, serif',fontSize:'24px',fontWeight:400,color:'var(--text)',letterSpacing:'-0.5px'},
-  pageSub:{fontSize:'13px',color:'var(--text2)',marginTop:'4px'},
-  btnNew:{background:'var(--accent)',color:'white',border:'none',borderRadius:'8px',padding:'10px 20px',fontSize:'13px',fontWeight:500,cursor:'pointer',fontFamily:'Inter, sans-serif'},
-  successBox:{background:'var(--green-light)',border:'1px solid rgba(34,197,94,0.2)',borderRadius:'10px',padding:'12px 16px',fontSize:'13px',color:'#16A34A',marginBottom:'16px'},
-  searchWrap:{position:'relative',marginBottom:'24px'},
-  searchIcon:{position:'absolute',left:'14px',top:'50%',transform:'translateY(-50%)',fontSize:'14px'},
-  searchInput:{width:'100%',maxWidth:'400px',background:'white',border:'1px solid var(--border2)',borderRadius:'10px',padding:'10px 14px 10px 38px',fontSize:'14px',color:'var(--text)',fontFamily:'Inter, sans-serif',outline:'none'},
-  loader:{padding:'48px',textAlign:'center',color:'var(--text2)'},
-  empty:{padding:'64px',textAlign:'center',color:'var(--text2)'},
-  empGrid:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'16px'},
-  empCard:{background:'white',border:'1px solid var(--border)',borderRadius:'var(--radius)',padding:'20px',boxShadow:'var(--shadow-sm)',transition:'box-shadow 0.2s,transform 0.2s'},
-  empTop:{display:'flex',alignItems:'center',gap:'12px',marginBottom:'16px'},
-  empAvatar:{width:'44px',height:'44px',borderRadius:'10px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'14px',fontWeight:600,color:'white',flexShrink:0},
-  empName:{fontSize:'14px',fontWeight:600,color:'var(--text)',marginBottom:'2px'},
-  empPoste:{fontSize:'12px',color:'var(--text2)'},
-  roleBadge:{fontSize:'10px',fontWeight:600,padding:'3px 10px',borderRadius:'20px',letterSpacing:'0.3px',whiteSpace:'nowrap'},
-  empDetails:{display:'flex',flexDirection:'column',gap:'8px',marginBottom:'16px',paddingTop:'16px',borderTop:'1px solid var(--border)'},
-  empDetail:{display:'flex',alignItems:'center',gap:'8px'},
-  detailIcon:{fontSize:'13px',flexShrink:0},
-  detailText:{fontSize:'12px',color:'var(--text2)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'},
-  empActions:{display:'flex',gap:'8px',paddingTop:'12px',borderTop:'1px solid var(--border)'},
-  actionBtn:{flex:1,padding:'7px',borderRadius:'7px',fontSize:'12px',fontWeight:500,cursor:'pointer',border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontFamily:'Inter, sans-serif'},
-  actionBtnRed:{border:'1px solid rgba(255,45,32,0.2)',background:'#FFF1F0',color:'var(--accent)'},
-  overlay:{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',backdropFilter:'blur(4px)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'},
-  modal:{background:'white',border:'1px solid var(--border)',borderRadius:'16px',padding:'36px',width:'560px',maxWidth:'90vw',maxHeight:'85vh',overflowY:'auto',boxShadow:'var(--shadow-lg)'},
-  modalTitle:{fontFamily:'Instrument Serif, serif',fontSize:'22px',fontWeight:400,color:'var(--text)',marginBottom:'24px'},
-  formGrid:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'16px'},
-  field:{display:'flex',flexDirection:'column'},
-  label:{fontSize:'13px',fontWeight:500,color:'var(--text)',marginBottom:'8px'},
-  input:{background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:'8px',padding:'10px 14px',fontSize:'14px',color:'var(--text)',fontFamily:'Inter, sans-serif',outline:'none'},
-  modalActions:{display:'flex',gap:'10px',justifyContent:'flex-end',marginTop:'28px'},
-  btnCancel:{padding:'10px 20px',borderRadius:'8px',background:'none',border:'1px solid var(--border)',color:'var(--text2)',fontFamily:'Inter, sans-serif',fontSize:'13px',cursor:'pointer'},
-  btnSubmit:{padding:'10px 24px',borderRadius:'8px',background:'var(--accent)',border:'none',color:'white',fontFamily:'Inter, sans-serif',fontSize:'13px',fontWeight:500,cursor:'pointer'},
-}

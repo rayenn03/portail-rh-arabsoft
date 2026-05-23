@@ -1,0 +1,92 @@
+/* ─── FloatingChatbot.module.css ─────────────────────────────────────── */
+
+/* Bouton flottant (FAB) — position d'origine en bas à droite.
+   Pas de conflit avec les toasts qui sont maintenant en haut à droite. */
+.fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  color: white;
+  font-size: 28px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 24px rgba(255, 45, 32, 0.40), 0 2px 8px rgba(0,0,0,0.15);
+  z-index: 150;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.fab:hover {
+  transform: scale(1.08);
+  box-shadow: 0 12px 32px rgba(255, 45, 32, 0.55), 0 4px 12px rgba(0,0,0,0.20);
+}
+
+.fab:active {
+  transform: scale(0.95);
+}
+
+/* Pastille notification (point pulsant pour attirer l'attention) */
+.fabDot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #22C55E;
+  border: 2px solid var(--accent);
+  animation: fabPulse 2s ease-in-out infinite;
+}
+
+@keyframes fabPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.25); opacity: 0.7; }
+}
+
+/* Fenêtre de chat flottante — s'ouvre au-dessus du bouton FAB (bas-droite) */
+.panel {
+  position: fixed;
+  bottom: 100px;
+  right: 24px;
+  width: 380px;
+  height: 540px;
+  background: var(--white);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.20), 0 4px 16px rgba(0,0,0,0.10);
+  z-index: 149;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid var(--border);
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* Mobile : full screen */
+@media (max-width: 640px) {
+  .panel {
+    bottom: 0;
+    right: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+  }
+  .fab {
+    bottom: 16px;
+    right: 16px;
+    width: 54px;
+    height: 54px;
+    font-size: 24px;
+  }
+}

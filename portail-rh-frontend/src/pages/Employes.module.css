@@ -1,0 +1,267 @@
+/* ─── Employes.module.css ────────────────────────────────────────────────────
+   Styles spécifiques à la page Employes (non présents dans shared.module.css)
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* ── Search bar ── */
+.searchWrap {
+  position: relative;
+  margin-bottom: 24px;
+}
+.searchIcon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+}
+.searchInput {
+  width: 100%;
+  max-width: 400px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px 10px 38px;
+  font-size: 14px;
+  color: var(--text);
+  font-family: Inter, sans-serif;
+  outline: none;
+}
+
+/* ── Employee card grid ── */
+.empGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.empCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  backdrop-filter: blur(20px);
+  transition: background 0.2s, border-color 0.2s;
+}
+.empTop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.empAvatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: white;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.photoImg {
+  width: 100%;
+  height: 100%;
+  border-radius: 16px;
+  object-fit: cover;
+}
+.empName {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.empPoste {
+  font-size: 12px;
+  color: var(--text2);
+}
+
+/* ── Role badge ── */
+.roleBadge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.roleAdmin   { background: rgba(34,197,94,0.15);  color: #22C55E; border: 1px solid rgba(34,197,94,0.25); }
+.roleChef    { background: rgba(249,115,22,0.15); color: #FB923C; border: 1px solid rgba(249,115,22,0.25); }
+.roleEmploye { background: rgba(59,130,246,0.15); color: #60A5FA; border: 1px solid rgba(59,130,246,0.25); }
+
+/* ── Employee detail rows ── */
+.empDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.empDetail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.detailIcon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.detailText {
+  font-size: 12px;
+  color: var(--text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.empActions {
+  display: flex;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Photo section (edit modal) ── */
+.photoSection {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.photoPreview {
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--accent), #c47c25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.btnChangePhoto {
+  padding: 8px 14px;
+  border-radius: 7px;
+  background: var(--border);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btnDeletePhoto {
+  padding: 6px 14px;
+  border-radius: 7px;
+  background: rgba(255,45,32,0.08);
+  border: 1px solid rgba(255,45,32,0.25);
+  color: #FF6B63;
+  font-family: Inter, sans-serif;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* ── Soldes de congés ── */
+.soldeSection {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+.soldeHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+.soldeTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.soldeSub {
+  font-size: 11px;
+  color: var(--text3);
+  margin-top: 2px;
+}
+.soldeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.soldeCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+}
+.soldeCardTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.soldeCardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.soldeField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.soldeLabel {
+  font-size: 10px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.soldeInput {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text);
+  font-family: Inter, sans-serif;
+  outline: none;
+  width: 100%;
+}
+.soldeRestant {
+  font-size: 11px;
+  color: var(--text2);
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.btnSaveSolde {
+  width: 100%;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: var(--accent);
+  border: none;
+  color: white;
+  font-family: Inter, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(255,45,32,0.25);
+}
+.btnSaveSolde:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ── Field full-width helper ── */
+.fieldFull {
+  display: flex;
+  flex-direction: column;
+  grid-column: 1 / -1;
+}

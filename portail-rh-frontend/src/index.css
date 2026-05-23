@@ -1,32 +1,129 @@
 :root {
-  --bg: #FAFAFA;
-  --white: #FFFFFF;
-  --surface: #F4F4F5;
-  --border: #E4E4E7;
-  --border2: #D4D4D8;
+  /* Fonds */
+  --bg: #0A0A0F;
+  --bg2: #0F0F1A;
+  --surface: rgba(255,255,255,0.04);
+  --surface2: rgba(255,255,255,0.07);
+  --surface3: rgba(255,255,255,0.10);
+  --white: #0A0A0F;
+
+  /* Bordures lumineuses */
+  --border: rgba(255,255,255,0.08);
+  --border2: rgba(255,255,255,0.14);
+  --border-accent: rgba(255,45,32,0.35);
+  --border-green: rgba(34,197,94,0.3);
+  --border-blue: rgba(59,130,246,0.3);
+  --border-purple: rgba(139,92,246,0.3);
+
+  /* Texte */
+  --text: rgba(255,255,255,0.92);
+  --text2: rgba(255,255,255,0.50);
+  --text3: rgba(255,255,255,0.28);
+
+  /* Accent */
   --accent: #FF2D20;
-  --accent-light: #FFF1F0;
+  --accent-light: rgba(255,45,32,0.12);
   --accent-hover: #E0251A;
-  --text: #18181B;
-  --text2: #71717A;
-  --text3: #A1A1AA;
+
+  /* Couleurs sémantiques */
   --green: #22C55E;
-  --green-light: #F0FDF4;
+  --green-light: rgba(34,197,94,0.12);
   --blue: #3B82F6;
-  --blue-light: #EFF6FF;
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.07);
-  --shadow: 0 4px 16px rgba(0,0,0,0.08);
-  --shadow-lg: 0 20px 48px rgba(0,0,0,0.10);
+  --blue-light: rgba(59,130,246,0.12);
+  --orange-light: rgba(249,115,22,0.12);
+  --purple-light: rgba(139,92,246,0.12);
+
+  /* Ombres glassmorphism */
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.4);
+  --shadow: 0 8px 32px rgba(0,0,0,0.5);
+  --shadow-lg: 0 20px 60px rgba(0,0,0,0.6);
+  --shadow-glow: 0 0 20px rgba(255,45,32,0.15);
+
+  /* Radius */
   --radius: 12px;
   --radius-lg: 20px;
+
+  /* Sidebar */
+  --sidebar-w: 240px;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+html, body, #root {
+  min-height: 100vh;
+  scroll-behavior: smooth;
+}
 body {
   font-family: 'Inter', sans-serif;
   background: var(--bg);
   color: var(--text);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  transition: background 0.25s ease, color 0.25s ease;
 }
+
+/* ─── Mode clair (data-theme="light") ─────────────────────────────────── */
+html[data-theme="light"] {
+  --bg:        #FAFAFA;
+  --bg2:       #FFFFFF;
+  --surface:   rgba(0,0,0,0.025);
+  --surface2:  rgba(0,0,0,0.05);
+  --surface3:  rgba(0,0,0,0.08);
+  --white:     #FFFFFF;
+
+  --border:    rgba(0,0,0,0.08);
+  --border2:   rgba(0,0,0,0.14);
+
+  --text:      #18181B;
+  --text2:     #52525B;
+  --text3:     #A1A1AA;
+
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.06);
+  --shadow:    0 8px 32px rgba(0,0,0,0.10);
+  --shadow-lg: 0 20px 60px rgba(0,0,0,0.12);
+
+  color-scheme: light;
+}
+
+/* ─── Mode sombre (défaut) ────────────────────────────────────────────── */
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* ─── Select / Options : forcer le thème (sinon Chrome utilise les couleurs OS) ── */
+select {
+  background-color: var(--bg2);
+  color: var(--text);
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23A1A1AA' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px !important;
+  cursor: pointer;
+}
+select option {
+  background-color: var(--bg2);
+  color: var(--text);
+  padding: 10px 12px;
+}
+select option:hover,
+select option:focus,
+select option:checked {
+  background: var(--accent-light) !important;
+  color: var(--accent) !important;
+}
+html[data-theme="light"] select,
+html[data-theme="light"] select option {
+  background-color: #FFFFFF;
+  color: #18181B;
+}
+
+/* Spinner / animations partagés */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.toast-enter { animation: fadeInUp 0.2s ease-out; }
+.modal-enter { animation: fadeInUp 0.2s ease-out; }

@@ -62,7 +62,13 @@ class AuthController extends Controller
             return response()->json(['error' => 'Impossible de créer le token'], 500);
         }
 
-        return response()->json(['token' => $token]);
+        // Récupère l'utilisateur déjà résolu par attempt() — pas de requête DB supplémentaire
+        $user = JWTAuth::user();
+
+        return response()->json([
+            'token' => $token,
+            'user'  => $user,
+        ]);
     }
 
     // Logout

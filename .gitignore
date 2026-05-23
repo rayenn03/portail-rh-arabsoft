@@ -16,3 +16,12 @@ portail-rh-frontend/.env.local
 # General
 .DS_Store
 *.log
+
+# Stray root-level installs (project lives in subfolders)
+/vendor/
+/node_modules/
+/package.json
+/package-lock.json
+
+# Claude Code workspace
+.claude/

@@ -21,12 +21,20 @@ class User extends Authenticatable implements JWTSubject
         'departement',
         'poste',
         'telephone',
+        'photo',
     ];
 
     protected $hidden = [
         'password',
         'remember_token',
     ];
+
+    protected $appends = ['photo_url'];
+
+    public function getPhotoUrlAttribute(): ?string
+    {
+        return $this->photo ? asset('storage/' . $this->photo) : null;
+    }
 
     protected function casts(): array
     {

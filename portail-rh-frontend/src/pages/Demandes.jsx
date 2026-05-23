@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react'
 import Layout from '../components/Layout'
 import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
+import { useConfirm } from '../context/ConfirmContext'
 import api from '../api/axios'
+import s from '../styles/shared.module.css'
+import { TYPE_LABEL, STATUT_LABEL, TYPE_CSS, STATUT_CSS } from '../constants/demandes'
 
 export default function Demandes() {
   const { user } = useAuth()
+  const { showToast } = useToast()
+  const { confirm } = useConfirm()
   const [demandes, setDemandes]   = useState([])
   const [loading, setLoading]     = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
@@ -15,18 +21,34 @@ export default function Demandes() {
   const [editModal, setEditModal] = useState(false)
   const [editForm, setEditForm] = useState({})
   const [editId, setEditId] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  // Date du jour au format YYYY-MM-DD pour bloquer les dates passées dans les inputs
+  const today = new Date().toISOString().slice(0, 10)
+
   const [form, setForm]           = useState({
     type: '', date_debut: '', date_fin: '',
     montant: '', duree: '', motif: '',
     type_document: '', commentaire: '',
   })
 
-  // Charger les demandes
-  const fetchDemandes = () => {
-    setLoading(true)
-    api.get('/demandes')
-      .then(res => setDemandes(res.data))
-      .catch(() => setDemandes([]))
+  // ── Justificatif (pièce jointe) ────────────────────────────────────────────
+  const [justifFile, setJustifFile] = useState(null)
+
+  // Détermine si un justificatif est obligatoire selon le type + sous-type
+  const isJustifRequired = () => {
+    if (form.type === 'situation') return true
+    if (form.type === 'conge' && ['Congé maladie', 'Congé exceptionnel'].includes(form.motif)) return true
+    if (form.type === 'pret' && form.motif === 'Prêt personnel') return true
+    return false
+  }
+
+  // Charger les demandes (silent=true → refresh sans flicker)
+  const fetchDemandes = (silent = false) => {
+    if (!silent) setLoading(true)
+    api.get('/demandes?page=1')
+      .then(res => setDemandes(res.data.data))
+      .catch(() => { if (!silent) setDemandes([]) })
       .finally(() => setLoading(false))
   }
   // Voir détails
@@ -52,25 +74,83 @@ const openEdit = (d) => {
 
 // Modifier demande
 const handleEdit = async () => {
+  // ✅ Validation côté client des dates
+  if (editForm.type === 'conge' || editForm.type === 'autorisation') {
+    if (!editForm.date_debut) {
+      showToast('La date de début est obligatoire.', 'error'); return
+    }
+    if (editForm.date_debut < today) {
+      showToast('La date de début ne peut pas être dans le passé.', 'error'); return
+    }
+  }
+  if (editForm.type === 'conge') {
+    if (!editForm.date_fin) {
+      showToast('La date de fin est obligatoire pour un congé.', 'error'); return
+    }
+    if (editForm.date_fin < editForm.date_debut) {
+      showToast('La date de fin doit être postérieure ou égale à la date de début.', 'error'); return
+    }
+  }
   try {
     await api.put(`/demandes/${editId}`, editForm)
     setEditModal(false)
-    fetchDemandes()
+    fetchDemandes(true)
     setSuccess(true)
     setTimeout(() => setSuccess(false), 4000)
   } catch (e) {
-    alert('Erreur lors de la modification.')
+    const msg = e?.response?.data?.errors
+      ? Object.values(e.response.data.errors).flat().join(' ')
+      : (e?.response?.data?.message || 'Erreur lors de la modification.')
+    showToast(msg, 'error')
   }
 }
 
 // Annuler demande
 const handleCancel = async (id) => {
-  if (!window.confirm('Voulez-vous vraiment annuler cette demande ?')) return
+  const ok = await confirm({
+    title: 'Annuler la demande',
+    message: 'Voulez-vous vraiment annuler cette demande ? Cette action est irréversible.',
+    confirmText: 'Oui, annuler',
+    cancelText: 'Non',
+    danger: true,
+  })
+  if (!ok) return
   try {
     await api.delete(`/demandes/${id}`)
-    fetchDemandes()
+    fetchDemandes(true)
+    showToast('Demande annulée.')
   } catch (e) {
-    alert('Erreur lors de l\'annulation.')
+    showToast('Erreur lors de l\'annulation.', 'error')
+  }
+}
+
+// Télécharger PDF officiel (document administratif approuvé uniquement)
+const handleDownload = async (demande) => {
+  try {
+    const token = localStorage.getItem('token')
+    const { default: axios } = await import('axios')
+    const response = await axios.get(
+      `http://127.0.0.1:8000/api/demandes/${demande.id}/telecharger`,
+      {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/pdf' },
+        responseType: 'blob',
+      }
+    )
+    const blob     = new Blob([response.data], { type: 'application/pdf' })
+    const url      = URL.createObjectURL(blob)
+    const ref      = `REF-${demande.id}-${new Date().getFullYear()}`
+    const slug     = (demande.motif || 'document').toLowerCase().replace(/\s+/g, '-')
+    const filename = `ArabSoft-${slug}-${ref}.pdf`
+    const link     = document.createElement('a')
+    link.href      = url
+    link.download  = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    showToast('PDF téléchargé avec succès.')
+  } catch (e) {
+    showToast('Erreur lors du téléchargement du PDF.', 'error')
   }
 }
 
@@ -87,23 +167,93 @@ const handleCancel = async (id) => {
 
   // Soumettre une demande
   const handleSubmit = async () => {
+    // ✅ Validation : type obligatoire (toast au lieu de bouton silencieusement désactivé)
+    if (!form.type) {
+      showToast('Veuillez sélectionner un type de demande.', 'error')
+      return
+    }
+    if (form.type === 'document' && !form.motif) {
+      showToast('Veuillez sélectionner le document souhaité.', 'error')
+      return
+    }
+    if (form.type === 'autorisation' && !form.motif) {
+      showToast('Veuillez préciser le motif de l\'autorisation.', 'error')
+      return
+    }
+    if (form.type === 'pret') {
+      if (!form.montant || Number(form.montant) <= 0) {
+        showToast('Veuillez saisir un montant valide.', 'error')
+        return
+      }
+    }
+    // ✅ Validation côté client des dates
+    if (form.type === 'conge' || form.type === 'autorisation') {
+      if (!form.date_debut) {
+        showToast('La date de début est obligatoire.', 'error')
+        return
+      }
+      if (form.date_debut < today) {
+        showToast('La date de début ne peut pas être dans le passé.', 'error')
+        return
+      }
+    }
+    if (form.type === 'conge') {
+      if (!form.date_fin) {
+        showToast('La date de fin est obligatoire pour un congé.', 'error')
+        return
+      }
+      if (form.date_fin < form.date_debut) {
+        showToast('La date de fin doit être postérieure ou égale à la date de début.', 'error')
+        return
+      }
+    }
+    // ✅ Validation côté client du justificatif
+    if (isJustifRequired() && !justifFile) {
+      showToast('Un justificatif est obligatoire pour ce type de demande.', 'error')
+      return
+    }
+    if (justifFile && justifFile.size > 5 * 1024 * 1024) {
+      showToast('Le justificatif ne doit pas dépasser 5 Mo.', 'error')
+      return
+    }
+    if (justifFile) {
+      const ok = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'].includes(justifFile.type)
+      if (!ok) {
+        showToast('Format invalide. PDF, JPG ou PNG uniquement.', 'error')
+        return
+      }
+    }
+
+    setSubmitting(true)
     try {
-      await api.post('/demandes', {
-        type:        form.type,
-        date_debut:  form.date_debut  || null,
-        date_fin:    form.date_fin    || null,
-        montant:     form.montant     || null,
-        duree:       form.duree       || null,
-        motif:       form.motif       || form.type_document || '',
-        commentaire: form.commentaire || '',
+      // ✅ FormData pour envoyer le fichier en multipart
+      const fd = new FormData()
+      fd.append('type', form.type)
+      if (form.date_debut) fd.append('date_debut', form.date_debut)
+      if (form.date_fin)   fd.append('date_fin',   form.date_fin)
+      if (form.montant)    fd.append('montant',    form.montant)
+      if (form.duree)      fd.append('duree',      form.duree)
+      fd.append('motif',       form.motif || form.type_document || '')
+      fd.append('commentaire', form.commentaire || '')
+      if (justifFile) fd.append('piece_jointe', justifFile)
+
+      await api.post('/demandes', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       })
       setModalOpen(false)
       setSuccess(true)
+      showToast('Demande soumise avec succès.', 'success')
       setForm({ type:'', date_debut:'', date_fin:'', montant:'', duree:'', motif:'', type_document:'', commentaire:'' })
-      fetchDemandes()
+      setJustifFile(null)
+      fetchDemandes(true)
       setTimeout(() => setSuccess(false), 4000)
     } catch (e) {
-      alert('Erreur lors de la soumission. Vérifiez les champs.')
+      const msg = e?.response?.data?.errors
+        ? Object.values(e.response.data.errors).flat().join(' ')
+        : (e?.response?.data?.message || 'Erreur lors de la soumission. Vérifiez les champs.')
+      showToast(msg, 'error')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -111,13 +261,13 @@ const handleCancel = async (id) => {
     <Layout title="Mes Demandes">
 
       {/* Header */}
-      <div style={styles.pageHeader}>
+      <div className={s.pageHeader}>
         <div>
-          <h2 style={styles.pageTitle}>Mes Demandes</h2>
-          <p style={styles.pageSub}>Gérez et suivez toutes vos demandes RH</p>
+          <h2 className={s.pageTitle}>Mes Demandes</h2>
+          <p className={s.pageSub}>Gérez et suivez toutes vos demandes RH</p>
         </div>
               {user?.role === 'employe' && (
-          <button onClick={() => setModalOpen(true)} style={styles.btnNew}>
+          <button onClick={() => setModalOpen(true)} className={s.btnNew}>
             + Nouvelle demande
           </button>
            )}
@@ -125,13 +275,13 @@ const handleCancel = async (id) => {
 
       {/* Success alert */}
       {success && (
-        <div style={styles.successBox}>
+        <div className={s.successBox}>
           ✅ Votre demande a été soumise avec succès !
         </div>
       )}
 
       {/* Tabs */}
-      <div style={styles.tabs}>
+      <div className={s.tabs}>
         {[
           { key:'all',      label:'Toutes' },
           { key:'pending',  label:'En attente' },
@@ -141,7 +291,7 @@ const handleCancel = async (id) => {
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            style={{...styles.tab, ...(tab === t.key ? styles.tabActive : {})}}
+            className={`${s.tab} ${tab === t.key ? s.tabActive : ''}`}
           >
             {t.label}
           </button>
@@ -149,43 +299,43 @@ const handleCancel = async (id) => {
       </div>
 
       {/* Table */}
-      <div style={styles.tableWrap}>
+      <div className={s.tableWrap}>
         {loading ? (
-          <div style={styles.loader}>⏳ Chargement...</div>
+          <div className={s.loader}>⏳ Chargement...</div>
         ) : filtered.length === 0 ? (
-          <div style={styles.empty}>
+          <div className={s.empty}>
             <div style={{fontSize:'40px',marginBottom:'12px'}}>📭</div>
             <div style={{fontWeight:500,marginBottom:'6px'}}>Aucune demande trouvée</div>
             <div style={{fontSize:'13px',color:'var(--text3)'}}>Cliquez sur "+ Nouvelle demande" pour commencer</div>
           </div>
         ) : (
-          <table style={styles.table}>
+          <table className={s.table}>
             <thead>
               <tr>
                 {['Type','Détails','Date soumission','Statut','Actions'].map(h => (
-                  <th key={h} style={styles.th}>{h}</th>
+                  <th key={h} className={s.th}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {filtered.map((d, i) => (
-                <tr key={i} style={styles.tr}>
-                  <td style={styles.td}>
-                    <span style={{...styles.typeBadge, ...typeStyle[d.type] || typeStyle.default}}>
-                      {typeLabel[d.type] || d.type}
+                <tr key={i} className={`table-row ${s.tr}`}>
+                  <td className={s.td}>
+                    <span className={`${s.typeBadge} ${s[TYPE_CSS[d.type]] || s.badgeDefault}`}>
+                      {TYPE_LABEL[d.type] || d.type}
                     </span>
                   </td>
-                  <td style={styles.td}>{d.motif || '—'}</td>
-                  <td style={styles.td}>{new Date(d.created_at).toLocaleDateString('fr-FR')}</td>
-                  <td style={styles.td}>
-                    <span style={{...styles.statusBadge, ...statusStyle[d.statut]}}>
-                      {statusLabel[d.statut] || d.statut}
+                  <td className={s.td}>{d.motif || '—'}</td>
+                  <td className={s.td}>{new Date(d.created_at).toLocaleDateString('fr-FR')}</td>
+                  <td className={s.td}>
+                    <span className={`${s.statusBadge} ${s[STATUT_CSS[d.statut]] || ''}`}>
+                      {STATUT_LABEL[d.statut] || d.statut}
                     </span>
                   </td>
-                  <td style={styles.td}>
+                  <td className={s.td}>
   <button
     onClick={() => openDetail(d)}
-    style={styles.actionBtn}
+    className={`btn-hover ${s.actionBtn}`}
   >
     Détails
   </button>
@@ -193,13 +343,15 @@ const handleCancel = async (id) => {
     <>
       <button
         onClick={() => openEdit(d)}
-        style={{...styles.actionBtn, marginLeft:'4px'}}
+        className={`btn-hover ${s.actionBtn}`}
+        style={{marginLeft:'4px'}}
       >
         ✏️
       </button>
       <button
         onClick={() => handleCancel(d.id)}
-        style={{...styles.actionBtn, ...styles.actionBtnRed, marginLeft:'4px'}}
+        className={`${s.actionBtn} ${s.actionBtnRed}`}
+        style={{marginLeft:'4px'}}
       >Annuler
       </button>
     </>
@@ -212,17 +364,18 @@ const handleCancel = async (id) => {
         )}
       </div>
 
-      {/* MODAL */}
+      {/* Toast géré par <ToastProvider> global */}
+
       {modalOpen && (
-        <div style={styles.overlay} onClick={e => e.target === e.currentTarget && setModalOpen(false)}>
-          <div style={styles.modal}>
-            <div style={styles.modalTitle}>Nouvelle Demande</div>
+        <div className={s.overlay} onClick={e => e.target === e.currentTarget && (setModalOpen(false), setJustifFile(null))}>
+          <div className={`modal-enter ${s.modal}`}>
+            <div className={s.modalTitle}>Nouvelle Demande</div>
 
             {/* Type */}
-            <div style={styles.field}>
-              <label style={styles.label}>Type de demande *</label>
+            <div className={s.field}>
+              <label className={s.label}>Type de demande *</label>
               <select
-                style={styles.input}
+                className={s.input}
                 value={form.type}
                 onChange={e => setForm({...form, type: e.target.value})}
               >
@@ -237,18 +390,18 @@ const handleCancel = async (id) => {
 
             {/* Champs dynamiques selon le type */}
             {form.type === 'conge' && (
-              <div style={styles.formGrid}>
-                <div style={styles.field}>
-                  <label style={styles.label}>Date de début *</label>
-                  <input type="date" style={styles.input} value={form.date_debut} onChange={e => setForm({...form, date_debut: e.target.value})} />
+              <div className={s.formGrid}>
+                <div className={s.field}>
+                  <label className={s.label}>Date de début *</label>
+                  <input type="date" min={today} className={s.input} value={form.date_debut} onChange={e => setForm({...form, date_debut: e.target.value})} />
                 </div>
-                <div style={styles.field}>
-                  <label style={styles.label}>Date de fin *</label>
-                  <input type="date" style={styles.input} value={form.date_fin} onChange={e => setForm({...form, date_fin: e.target.value})} />
+                <div className={s.field}>
+                  <label className={s.label}>Date de fin *</label>
+                  <input type="date" min={form.date_debut || today} className={s.input} value={form.date_fin} onChange={e => setForm({...form, date_fin: e.target.value})} />
                 </div>
-                <div style={{...styles.field, gridColumn:'1/-1'}}>
-                  <label style={styles.label}>Type de congé</label>
-                  <select style={styles.input} value={form.motif} onChange={e => setForm({...form, motif: e.target.value})}>
+                <div className={s.field} style={{gridColumn:'1/-1'}}>
+                  <label className={s.label}>Type de congé</label>
+                  <select className={s.input} value={form.motif} onChange={e => setForm({...form, motif: e.target.value})}>
                     <option value="">Congé annuel</option>
                     <option value="Congé maladie">Congé maladie</option>
                     <option value="Congé exceptionnel">Congé exceptionnel</option>
@@ -259,21 +412,21 @@ const handleCancel = async (id) => {
             )}
 
             {form.type === 'pret' && (
-              <div style={styles.formGrid}>
-                <div style={styles.field}>
-                  <label style={styles.label}>Type</label>
-                  <select style={styles.input} value={form.motif} onChange={e => setForm({...form, motif: e.target.value})}>
+              <div className={s.formGrid}>
+                <div className={s.field}>
+                  <label className={s.label}>Type</label>
+                  <select className={s.input} value={form.motif} onChange={e => setForm({...form, motif: e.target.value})}>
                     <option value="Prêt personnel">Prêt personnel</option>
                     <option value="Avance sur salaire">Avance sur salaire</option>
                   </select>
                 </div>
-                <div style={styles.field}>
-                  <label style={styles.label}>Montant (DT) *</label>
-                  <input type="number" placeholder="ex: 3000" style={styles.input} value={form.montant} onChange={e => setForm({...form, montant: e.target.value})} />
+                <div className={s.field}>
+                  <label className={s.label}>Montant (DT) *</label>
+                  <input type="number" placeholder="ex: 3000" className={s.input} value={form.montant} onChange={e => setForm({...form, montant: e.target.value})} />
                 </div>
-                <div style={{...styles.field, gridColumn:'1/-1'}}>
-                  <label style={styles.label}>Durée de remboursement</label>
-                  <select style={styles.input} value={form.duree} onChange={e => setForm({...form, duree: e.target.value})}>
+                <div className={s.field} style={{gridColumn:'1/-1'}}>
+                  <label className={s.label}>Durée de remboursement</label>
+                  <select className={s.input} value={form.duree} onChange={e => setForm({...form, duree: e.target.value})}>
                     <option value="3 mois">3 mois</option>
                     <option value="6 mois">6 mois</option>
                     <option value="12 mois">12 mois</option>
@@ -284,22 +437,22 @@ const handleCancel = async (id) => {
             )}
 
             {form.type === 'autorisation' && (
-              <div style={styles.formGrid}>
-                <div style={styles.field}>
-                  <label style={styles.label}>Date *</label>
-                  <input type="date" style={styles.input} value={form.date_debut} onChange={e => setForm({...form, date_debut: e.target.value})} />
+              <div className={s.formGrid}>
+                <div className={s.field}>
+                  <label className={s.label}>Date *</label>
+                  <input type="date" min={today} className={s.input} value={form.date_debut} onChange={e => setForm({...form, date_debut: e.target.value})} />
                 </div>
-                <div style={styles.field}>
-                  <label style={styles.label}>Motif *</label>
-                  <input type="text" placeholder="ex: Rendez-vous médical" style={styles.input} value={form.motif} onChange={e => setForm({...form, motif: e.target.value})} />
+                <div className={s.field}>
+                  <label className={s.label}>Motif *</label>
+                  <input type="text" placeholder="ex: Rendez-vous médical" className={s.input} value={form.motif} onChange={e => setForm({...form, motif: e.target.value})} />
                 </div>
               </div>
             )}
 
             {form.type === 'document' && (
-              <div style={styles.field}>
-                <label style={styles.label}>Document souhaité *</label>
-                <select style={styles.input} value={form.motif} onChange={e => setForm({...form, motif: e.target.value})}>
+              <div className={s.field}>
+                <label className={s.label}>Document souhaité *</label>
+                <select className={s.input} value={form.motif} onChange={e => setForm({...form, motif: e.target.value})}>
                   <option value="Attestation de travail">Attestation de travail</option>
                   <option value="Attestation de salaire">Attestation de salaire</option>
                   <option value="Bulletin de paie">Bulletin de paie</option>
@@ -309,9 +462,9 @@ const handleCancel = async (id) => {
             )}
 
             {form.type === 'situation' && (
-              <div style={styles.field}>
-                <label style={styles.label}>Nature du changement *</label>
-                <select style={styles.input} value={form.motif} onChange={e => setForm({...form, motif: e.target.value})}>
+              <div className={s.field}>
+                <label className={s.label}>Nature du changement *</label>
+                <select className={s.input} value={form.motif} onChange={e => setForm({...form, motif: e.target.value})}>
                   <option value="Changement d'adresse">Changement d'adresse</option>
                   <option value="Mariage">Mariage</option>
                   <option value="Naissance">Naissance</option>
@@ -320,14 +473,40 @@ const handleCancel = async (id) => {
               </div>
             )}
 
+            {/* Justificatif — uniquement pour les types qui peuvent en avoir un */}
+            {form.type && form.type !== 'document' && (
+              <div className={s.field}>
+                <label className={s.label}>
+                  Justificatif {isJustifRequired() ? <span style={{color:'var(--accent)'}}>*</span> : <span style={{color:'var(--text3)'}}>(optionnel)</span>}
+                </label>
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                  onChange={e => setJustifFile(e.target.files?.[0] || null)}
+                  className={s.input}
+                  style={{padding:'8px 10px', cursor:'pointer'}}
+                />
+                {justifFile && (
+                  <div style={{fontSize:'12px', color:'var(--accent)', marginTop:'6px', fontWeight:500}}>
+                    📎 {justifFile.name} · {(justifFile.size/1024).toFixed(0)} Ko
+                  </div>
+                )}
+                <div style={{fontSize:'11px', color:'var(--text3)', marginTop:'4px'}}>
+                  Formats acceptés : PDF, JPG, PNG · Max 5 Mo
+                  {isJustifRequired() && ' · Obligatoire pour ce type de demande'}
+                </div>
+              </div>
+            )}
+
             {/* Commentaire */}
             {form.type && (
-              <div style={styles.field}>
-                <label style={styles.label}>Commentaire (optionnel)</label>
+              <div className={s.field}>
+                <label className={s.label}>Commentaire (optionnel)</label>
                 <textarea
                   rows={3}
                   placeholder="Informations complémentaires..."
-                  style={{...styles.input, resize:'vertical'}}
+                  className={s.input}
+                  style={{resize:'vertical'}}
                   value={form.commentaire}
                   onChange={e => setForm({...form, commentaire: e.target.value})}
                 />
@@ -335,14 +514,14 @@ const handleCancel = async (id) => {
             )}
 
             {/* Actions */}
-            <div style={styles.modalActions}>
-              <button onClick={() => setModalOpen(false)} style={styles.btnCancel}>Annuler</button>
+            <div className={s.modalActions}>
+              <button onClick={() => { setModalOpen(false); setJustifFile(null) }} className={`btn-hover ${s.btnCancel}`} disabled={submitting}>Annuler</button>
               <button
                 onClick={handleSubmit}
-                disabled={!form.type}
-                style={{...styles.btnSubmit, opacity: !form.type ? 0.6 : 1}}
+                disabled={submitting}
+                className={`btn-hover ${s.btnSubmit}`}
               >
-                Soumettre la demande
+                {submitting ? 'Envoi…' : 'Soumettre la demande'}
               </button>
             </div>
           </div>
@@ -351,14 +530,14 @@ const handleCancel = async (id) => {
 
       {/* MODAL — Détails */}
 {detailModal && selectedDemande && (
-  <div style={styles.overlay} onClick={e => e.target === e.currentTarget && setDetailModal(false)}>
-    <div style={styles.modal}>
-      <div style={styles.modalTitle}>Détails de la demande</div>
+  <div className={s.overlay} onClick={e => e.target === e.currentTarget && setDetailModal(false)}>
+    <div className={`modal-enter ${s.modal}`}>
+      <div className={s.modalTitle}>Détails de la demande</div>
 
       <div style={{display:'flex',flexDirection:'column',gap:'0'}}>
         {[
-          ['Type',            typeLabel[selectedDemande.type] || selectedDemande.type],
-          ['Statut',          statusLabel[selectedDemande.statut] || selectedDemande.statut],
+          ['Type',            TYPE_LABEL[selectedDemande.type] || selectedDemande.type],
+          ['Statut',          STATUT_LABEL[selectedDemande.statut] || selectedDemande.statut],
           ['Motif / Détails', selectedDemande.motif || '—'],
           ['Date début',      selectedDemande.date_debut ? new Date(selectedDemande.date_debut).toLocaleDateString('fr-FR') : '—'],
           ['Date fin',        selectedDemande.date_fin   ? new Date(selectedDemande.date_fin).toLocaleDateString('fr-FR')   : '—'],
@@ -374,12 +553,33 @@ const handleCancel = async (id) => {
         ))}
       </div>
 
-      <div style={{...styles.modalActions, marginTop:'24px'}}>
-        <button onClick={() => setDetailModal(false)} style={styles.btnCancel}>Fermer</button>
+      {/* Lien justificatif */}
+      {selectedDemande.piece_jointe_url && (
+        <a
+          href={selectedDemande.piece_jointe_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`btn-hover ${s.justifLink}`}
+        >
+          📎 Voir le justificatif
+        </a>
+      )}
+
+      <div className={s.modalActions} style={{marginTop:'24px'}}>
+        <button onClick={() => setDetailModal(false)} className={`btn-hover ${s.btnCancel}`}>Fermer</button>
+        {selectedDemande.type === 'document' &&
+         (selectedDemande.statut === 'approuvee' || selectedDemande.statut === 'approuvee_direct') && (
+          <button
+            onClick={() => handleDownload(selectedDemande)}
+            className={`btn-hover ${s.btnDownload}`}
+          >
+            📄 Télécharger PDF
+          </button>
+        )}
         {selectedDemande.statut === 'en_attente' && (
           <button
             onClick={() => { setDetailModal(false); openEdit(selectedDemande) }}
-            style={styles.btnSubmit}
+            className={`btn-hover ${s.btnSubmit}`}
           >
             ✏️ Modifier
           </button>
@@ -391,23 +591,23 @@ const handleCancel = async (id) => {
 
 {/* MODAL — Modifier demande */}
 {editModal && (
-  <div style={styles.overlay} onClick={e => e.target === e.currentTarget && setEditModal(false)}>
-    <div style={styles.modal}>
-      <div style={styles.modalTitle}>Modifier la demande</div>
+  <div className={s.overlay} onClick={e => e.target === e.currentTarget && setEditModal(false)}>
+    <div className={`modal-enter ${s.modal}`}>
+      <div className={s.modalTitle}>Modifier la demande</div>
 
       {editForm.type === 'conge' && (
-        <div style={styles.formGrid}>
-          <div style={styles.field}>
-            <label style={styles.label}>Date de début</label>
-            <input type="date" style={styles.input} value={editForm.date_debut} onChange={e=>setEditForm({...editForm,date_debut:e.target.value})} />
+        <div className={s.formGrid}>
+          <div className={s.field}>
+            <label className={s.label}>Date de début</label>
+            <input type="date" min={today} className={s.input} value={editForm.date_debut} onChange={e=>setEditForm({...editForm,date_debut:e.target.value})} />
           </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Date de fin</label>
-            <input type="date" style={styles.input} value={editForm.date_fin} onChange={e=>setEditForm({...editForm,date_fin:e.target.value})} />
+          <div className={s.field}>
+            <label className={s.label}>Date de fin</label>
+            <input type="date" min={editForm.date_debut || today} className={s.input} value={editForm.date_fin} onChange={e=>setEditForm({...editForm,date_fin:e.target.value})} />
           </div>
-          <div style={{...styles.field,gridColumn:'1/-1'}}>
-            <label style={styles.label}>Type de congé</label>
-            <select style={styles.input} value={editForm.motif} onChange={e=>setEditForm({...editForm,motif:e.target.value})}>
+          <div className={s.field} style={{gridColumn:'1/-1'}}>
+            <label className={s.label}>Type de congé</label>
+            <select className={s.input} value={editForm.motif} onChange={e=>setEditForm({...editForm,motif:e.target.value})}>
               <option value="Congé annuel">Congé annuel</option>
               <option value="Congé maladie">Congé maladie</option>
               <option value="Congé exceptionnel">Congé exceptionnel</option>
@@ -418,14 +618,14 @@ const handleCancel = async (id) => {
       )}
 
       {editForm.type === 'pret' && (
-        <div style={styles.formGrid}>
-          <div style={styles.field}>
-            <label style={styles.label}>Montant (DT)</label>
-            <input type="number" style={styles.input} value={editForm.montant} onChange={e=>setEditForm({...editForm,montant:e.target.value})} />
+        <div className={s.formGrid}>
+          <div className={s.field}>
+            <label className={s.label}>Montant (DT)</label>
+            <input type="number" className={s.input} value={editForm.montant} onChange={e=>setEditForm({...editForm,montant:e.target.value})} />
           </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Durée</label>
-            <select style={styles.input} value={editForm.duree} onChange={e=>setEditForm({...editForm,duree:e.target.value})}>
+          <div className={s.field}>
+            <label className={s.label}>Durée</label>
+            <select className={s.input} value={editForm.duree} onChange={e=>setEditForm({...editForm,duree:e.target.value})}>
               <option value="3 mois">3 mois</option>
               <option value="6 mois">6 mois</option>
               <option value="12 mois">12 mois</option>
@@ -436,22 +636,22 @@ const handleCancel = async (id) => {
       )}
 
       {editForm.type === 'autorisation' && (
-        <div style={styles.formGrid}>
-          <div style={styles.field}>
-            <label style={styles.label}>Date</label>
-            <input type="date" style={styles.input} value={editForm.date_debut} onChange={e=>setEditForm({...editForm,date_debut:e.target.value})} />
+        <div className={s.formGrid}>
+          <div className={s.field}>
+            <label className={s.label}>Date</label>
+            <input type="date" min={today} className={s.input} value={editForm.date_debut} onChange={e=>setEditForm({...editForm,date_debut:e.target.value})} />
           </div>
-          <div style={styles.field}>
-            <label style={styles.label}>Motif</label>
-            <input type="text" style={styles.input} value={editForm.motif} onChange={e=>setEditForm({...editForm,motif:e.target.value})} />
+          <div className={s.field}>
+            <label className={s.label}>Motif</label>
+            <input type="text" className={s.input} value={editForm.motif} onChange={e=>setEditForm({...editForm,motif:e.target.value})} />
           </div>
         </div>
       )}
 
       {editForm.type === 'document' && (
-        <div style={styles.field}>
-          <label style={styles.label}>Document souhaité</label>
-          <select style={styles.input} value={editForm.motif} onChange={e=>setEditForm({...editForm,motif:e.target.value})}>
+        <div className={s.field}>
+          <label className={s.label}>Document souhaité</label>
+          <select className={s.input} value={editForm.motif} onChange={e=>setEditForm({...editForm,motif:e.target.value})}>
             <option value="Attestation de travail">Attestation de travail</option>
             <option value="Attestation de salaire">Attestation de salaire</option>
             <option value="Bulletin de paie">Bulletin de paie</option>
@@ -461,9 +661,9 @@ const handleCancel = async (id) => {
       )}
 
       {editForm.type === 'situation' && (
-        <div style={styles.field}>
-          <label style={styles.label}>Nature du changement</label>
-          <select style={styles.input} value={editForm.motif} onChange={e=>setEditForm({...editForm,motif:e.target.value})}>
+        <div className={s.field}>
+          <label className={s.label}>Nature du changement</label>
+          <select className={s.input} value={editForm.motif} onChange={e=>setEditForm({...editForm,motif:e.target.value})}>
             <option value="Changement d'adresse">Changement d'adresse</option>
             <option value="Mariage">Mariage</option>
             <option value="Naissance">Naissance</option>
@@ -472,19 +672,20 @@ const handleCancel = async (id) => {
         </div>
       )}
 
-      <div style={{...styles.field, marginTop:'16px'}}>
-        <label style={styles.label}>Commentaire</label>
+      <div className={s.field} style={{marginTop:'16px'}}>
+        <label className={s.label}>Commentaire</label>
         <textarea
           rows={3}
-          style={{...styles.input, resize:'vertical'}}
+          className={s.input}
+          style={{resize:'vertical'}}
           value={editForm.commentaire}
           onChange={e=>setEditForm({...editForm,commentaire:e.target.value})}
         />
       </div>
 
-      <div style={styles.modalActions}>
-        <button onClick={() => setEditModal(false)} style={styles.btnCancel}>Annuler</button>
-        <button onClick={handleEdit} style={styles.btnSubmit}>
+      <div className={s.modalActions}>
+        <button onClick={() => setEditModal(false)} className={`btn-hover ${s.btnCancel}`}>Annuler</button>
+        <button onClick={handleEdit} className={`btn-hover ${s.btnSubmit}`}>
           Enregistrer
         </button>
       </div>
@@ -493,64 +694,4 @@ const handleCancel = async (id) => {
 )}
     </Layout>
   )
-}
-
-// ── DATA ──
-const typeLabel = {
-  conge:'Congé annuel', pret:'Prêt', situation:'Situation',
-  autorisation:'Autorisation', document:'Document',
-}
-
-const typeStyle = {
-  conge:       { background:'#EFF6FF', color:'#1D4ED8' },
-  pret:        { background:'#F5F3FF', color:'#7C3AED' },
-  situation:   { background:'#FFF7ED', color:'#C2410C' },
-  autorisation:{ background:'#FDF4FF', color:'#9333EA' },
-  document:    { background:'var(--green-light)', color:'#15803D' },
-  default:     { background:'var(--surface)', color:'var(--text2)' },
-}
-
-const statusLabel = {
-  en_attente:'En attente', approuvee:'Approuvée',
-  refusee:'Rejetée', valide_chef:'Validée chef',
-}
-
-const statusStyle = {
-  en_attente:  { background:'#FFF7ED', color:'#EA580C' },
-  approuvee:   { background:'var(--green-light)', color:'#16A34A' },
-  refusee:     { background:'#FFF1F0', color:'var(--accent)' },
-  valide_chef: { background:'var(--blue-light)', color:'#1D4ED8' },
-}
-
-// ── STYLES ──
-const styles = {
-  pageHeader:{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:'24px'},
-  pageTitle:{fontFamily:'Instrument Serif, serif',fontSize:'24px',fontWeight:400,color:'var(--text)',letterSpacing:'-0.5px'},
-  pageSub:{fontSize:'13px',color:'var(--text2)',marginTop:'4px'},
-  btnNew:{background:'var(--accent)',color:'white',border:'none',borderRadius:'8px',padding:'10px 20px',fontSize:'13px',fontWeight:500,cursor:'pointer',fontFamily:'Inter, sans-serif'},
-  successBox:{background:'var(--green-light)',border:'1px solid rgba(34,197,94,0.2)',borderRadius:'10px',padding:'12px 16px',fontSize:'13px',color:'#16A34A',marginBottom:'16px'},
-  tabs:{display:'flex',gap:'4px',marginBottom:'20px',background:'white',borderRadius:'10px',padding:'4px',width:'fit-content',border:'1px solid var(--border)'},
-  tab:{padding:'7px 16px',borderRadius:'7px',fontSize:'13px',fontWeight:500,cursor:'pointer',color:'var(--text2)',border:'none',background:'none',fontFamily:'Inter, sans-serif'},
-  tabActive:{background:'var(--surface)',color:'var(--text)',border:'1px solid var(--border)'},
-  tableWrap:{background:'white',border:'1px solid var(--border)',borderRadius:'var(--radius)',overflow:'hidden',boxShadow:'var(--shadow-sm)'},
-  loader:{padding:'48px',textAlign:'center',color:'var(--text2)'},
-  empty:{padding:'64px',textAlign:'center',color:'var(--text2)'},
-  table:{width:'100%',borderCollapse:'collapse'},
-  th:{padding:'12px 16px',textAlign:'left',fontSize:'11px',textTransform:'uppercase',letterSpacing:'0.8px',color:'var(--text2)',background:'var(--surface)',borderBottom:'1px solid var(--border)',fontWeight:600},
-  tr:{'&:hover':{background:'var(--surface)'},borderBottom:'1px solid rgba(228,228,231,0.5)'},
-  td:{padding:'14px 16px',fontSize:'13px',color:'var(--text)'},
-  typeBadge:{fontSize:'11px',padding:'3px 10px',borderRadius:'6px',fontWeight:500},
-  statusBadge:{fontSize:'10px',fontWeight:600,padding:'3px 10px',borderRadius:'20px',letterSpacing:'0.3px',textTransform:'uppercase'},
-  actionBtn:{padding:'5px 12px',borderRadius:'6px',fontSize:'11px',fontWeight:500,cursor:'pointer',border:'1px solid var(--border)',background:'none',color:'var(--text)',fontFamily:'Inter, sans-serif',marginRight:'4px'},
-  actionBtnRed:{borderColor:'var(--accent)',color:'var(--accent)'},
-  overlay:{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',backdropFilter:'blur(4px)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'},
-  modal:{background:'white',border:'1px solid var(--border)',borderRadius:'16px',padding:'36px',width:'520px',maxWidth:'90vw',maxHeight:'85vh',overflowY:'auto',boxShadow:'var(--shadow-lg)'},
-  modalTitle:{fontFamily:'Instrument Serif, serif',fontSize:'22px',fontWeight:400,color:'var(--text)',marginBottom:'24px'},
-  formGrid:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'16px'},
-  field:{marginBottom:'16px'},
-  label:{display:'block',fontSize:'13px',fontWeight:500,color:'var(--text)',marginBottom:'8px'},
-  input:{width:'100%',background:'var(--surface)',border:'1px solid var(--border2)',borderRadius:'8px',padding:'10px 14px',fontSize:'14px',color:'var(--text)',fontFamily:'Inter, sans-serif',outline:'none'},
-  modalActions:{display:'flex',gap:'10px',justifyContent:'flex-end',marginTop:'28px'},
-  btnCancel:{padding:'10px 20px',borderRadius:'8px',background:'none',border:'1px solid var(--border)',color:'var(--text2)',fontFamily:'Inter, sans-serif',fontSize:'13px',cursor:'pointer'},
-  btnSubmit:{padding:'10px 24px',borderRadius:'8px',background:'var(--accent)',border:'none',color:'white',fontFamily:'Inter, sans-serif',fontSize:'13px',fontWeight:500,cursor:'pointer'},
 }

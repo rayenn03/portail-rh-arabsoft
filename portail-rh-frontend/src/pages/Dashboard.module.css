@@ -1,0 +1,217 @@
+/* ─── Dashboard.module.css ───────────────────────────────────────────────── */
+
+/* ── Welcome banner ── */
+.welcome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.welcomeTitle {
+  font-family: 'Instrument Serif', serif;
+  font-size: 28px;
+  font-weight: 400;
+  color: var(--text);
+  letter-spacing: -0.5px;
+  margin-bottom: 4px;
+}
+.welcomeSub {
+  font-size: 14px;
+  color: var(--text2);
+}
+.dateBadge {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--text2);
+}
+
+/* ── Loader ── */
+.loader {
+  text-align: center;
+  padding: 40px;
+  color: var(--text2);
+}
+
+/* ── Stats grid (4 columns) ── */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+/* ── Stat card (background/border are dynamic — applied inline per card) ── */
+.statCard {
+  border-radius: var(--radius);
+  padding: 22px;
+  backdrop-filter: blur(20px);
+}
+.statIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  margin-bottom: 14px;
+}
+.statNum {
+  font-family: 'Instrument Serif', serif;
+  font-size: 36px;
+  font-weight: 400;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.statLabel {
+  font-size: 12px;
+  color: var(--text2);
+  font-weight: 500;
+}
+
+/* ── Two-column grid ── */
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+/* ── Card ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  backdrop-filter: blur(20px);
+}
+.cardTitle {
+  font-family: 'Instrument Serif', serif;
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--text);
+  margin-bottom: 20px;
+}
+
+/* ── Recent request row ── */
+.reqItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+.reqAvatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: white;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, var(--accent), #c47c25);
+}
+.reqName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.reqType {
+  font-size: 11px;
+  color: var(--text2);
+}
+.reqDate {
+  font-size: 11px;
+  color: var(--text2);
+  margin-bottom: 4px;
+}
+
+/* ── Status badge (inline, small) ── */
+.badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+  display: inline-block;
+}
+
+/* ── Progress bar ── */
+.progressBg {
+  background: var(--border);
+  border-radius: 4px;
+  height: 8px;
+  overflow: hidden;
+}
+.progressFill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+  /* width and background set inline (dynamic per congé type) */
+}
+
+/* ── Info box ── */
+.infoBox {
+  background: rgba(255,45,32,0.08);
+  border: 1px solid rgba(255,45,32,0.15);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--text2);
+  margin-top: 8px;
+}
+
+/* ── Empty state ── */
+.emptyState {
+  text-align: center;
+  padding: 24px 0;
+}
+
+/* ── Link button (ghost) ── */
+.linkBtn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: 500;
+  padding: 0;
+}
+
+/* ── Primary action button ── */
+.primaryBtn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(255,45,32,0.35);
+}
+
+/* ── Quick-action button (default accent variant) ── */
+.actionBtn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255,45,32,0.10);
+  color: var(--accent);
+  border: 1px solid rgba(255,45,32,0.20);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+.actionIcon {
+  font-size: 16px;
+}

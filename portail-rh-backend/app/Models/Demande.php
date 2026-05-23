@@ -21,6 +21,7 @@ class Demande extends Model
         'commentaire',
         'commentaire_chef',
         'commentaire_admin',
+        'piece_jointe',
     ];
 
     protected $casts = [
@@ -28,6 +29,16 @@ class Demande extends Model
         'date_fin'   => 'date',
         'montant'    => 'decimal:2',
     ];
+
+    // ✅ Accesseur : URL publique du justificatif (null si absent)
+    protected $appends = ['piece_jointe_url'];
+
+    public function getPieceJointeUrlAttribute()
+    {
+        return $this->piece_jointe
+            ? asset('storage/' . $this->piece_jointe)
+            : null;
+    }
 
     // ✅ Relation : demande → employé
     public function employee()
